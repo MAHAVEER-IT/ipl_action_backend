@@ -1,11 +1,11 @@
 const WebSocket = require('ws');
 const wss = new WebSocket.Server({ port: 8000 });
 const admin = require('firebase-admin');
+const firebaseConfig = require('./firebaseConfig');
 
 // Initialize Firebase Admin
-const serviceAccount = require('./serviceAccountKey.json');
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(firebaseConfig)
 });
 
 const db = admin.firestore();
