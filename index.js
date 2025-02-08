@@ -1,14 +1,9 @@
+require('dotenv').config();
 const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 8000 });
-const admin = require('firebase-admin');
-const firebaseConfig = require('./firebaseConfig');
+const port = process.env.PORT || 8000;
+const pingInterval = process.env.WS_PING_INTERVAL || 30000;
 
-// Initialize Firebase Admin
-admin.initializeApp({
-  credential: admin.credential.cert(firebaseConfig)
-});
-
-const db = admin.firestore();
+const wss = new WebSocket.Server({ port });
 
 // Store room and player information with WebSocket connections
 const clients = new Map(); // Map to store client WebSocket connections
@@ -55,37 +50,32 @@ wss.on('connection', function connection(ws) {
           });
           break;
 
-        case 'join_room':
-          // Handle player joining room
-          if (!rooms.has(data.room)) {
-            rooms.set(data.room, new Set());
-          }
-          rooms.get(data.room).add(data.player);
-          
-          // Broadcast new player joined
+        case 'player_offline':
+          // Broadcast player offline status to all clients
           wss.clients.forEach(function each(client) {
             if (client.readyState === WebSocket.OPEN) {
               client.send(JSON.stringify({
-                type: 'player_joined',
+                type: 'player_status',
                 room: data.room,
-                player: data.player
+                player: data.player,
+                isOnline: false
               }));
             }
           });
           break;
 
-        case 'start_game':
-          // Handle game start
-          if (rooms.has(data.room)) {
-            wss.clients.forEach(function each(client) {
-              if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify({
-                  type: 'game_started',
-                  room: data.room
-                }));
-              }
-            });
-          }
+        case 'player_online':
+          // Broadcast player online status to all clients
+          wss.clients.forEach(function each(client) {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({
+                type: 'player_status',
+                room: data.room,
+                player: data.player,
+                isOnline: true
+              }));
+            }
+          });
           break;
 
         default:
@@ -96,7 +86,7 @@ wss.on('connection', function connection(ws) {
     }
   });
 
-  ws.on('close', async function close() {
+  ws.on('close', function close() {
     console.log('Client disconnected. Total clients:', wss.clients.size);
     
     // Get disconnected player's info
@@ -104,40 +94,20 @@ wss.on('connection', function connection(ws) {
     if (clientInfo) {
       const { player, room } = clientInfo;
       
-      try {
-        // Update player's online status in Firestore
-        const roomRef = db.collection('rooms').doc(room);
-        const roomDoc = await roomRef.get();
-        
-        if (roomDoc.exists) {
-          const players = roomDoc.data().players;
-          const updatedPlayers = players.map(p => {
-            if (p.name === player) {
-              return { ...p, isOnline: false };
-            }
-            return p;
-          });
-
-          await roomRef.update({ players: updatedPlayers });
-          console.log(`Updated ${player}'s online status to false in room ${room}`);
+      // Remove client from our map
+      clients.delete(ws);
+      
+      // Notify other clients about player disconnection
+      wss.clients.forEach(function each(client) {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({
+            type: 'player_status',
+            room: room,
+            player: player,
+            isOnline: false
+          }));
         }
-
-        // Remove client from our map
-        clients.delete(ws);
-        
-        // Notify other clients about player disconnection
-        wss.clients.forEach(function each(client) {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({
-              type: 'player_left',
-              room: room,
-              player: player
-            }));
-          }
-        });
-      } catch (error) {
-        console.error('Error updating player online status:', error);
-      }
+      });
     }
 
     // Clear interval
@@ -154,7 +124,7 @@ wss.on('connection', function connection(ws) {
         connectedClients: wss.clients.size
       }));
     }
-  }, 30000);
+  }, parseInt(pingInterval));
 });
 
 // Error handling
@@ -162,5 +132,4 @@ wss.on('error', function error(error) {
   console.error('WebSocket server error:', error);
 });
 
-const port = process.env.PORT || 8000;
 console.log(`WebSocket server started on port ${port}`);
