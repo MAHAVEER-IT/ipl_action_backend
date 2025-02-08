@@ -1,7 +1,17 @@
 const WebSocket = require('ws');
 const wss = new WebSocket.Server({ port: 8000 });
+const admin = require('firebase-admin');
 
-// Store room and player information
+// Initialize Firebase Admin
+const serviceAccount = require('./serviceAccountKey.json');
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+const db = admin.firestore();
+
+// Store room and player information with WebSocket connections
+const clients = new Map(); // Map to store client WebSocket connections
 const rooms = new Map();
 
 wss.on('connection', function connection(ws) {
@@ -16,6 +26,14 @@ wss.on('connection', function connection(ws) {
     try {
       const data = JSON.parse(message);
       console.log('Received message:', data);
+
+      if (data.type === 'join_room') {
+        // Store client connection with player and room info
+        clients.set(ws, {
+          player: data.player,
+          room: data.room
+        });
+      }
 
       switch (data.type) {
         case 'team_selected':
@@ -78,12 +96,36 @@ wss.on('connection', function connection(ws) {
     }
   });
 
-  ws.on('close', function close() {
+  ws.on('close', async function close() {
     console.log('Client disconnected. Total clients:', wss.clients.size);
-    // Clean up rooms when players disconnect
-    rooms.forEach((players, room) => {
-      players.forEach(player => {
-        // Broadcast player left
+    
+    // Get disconnected player's info
+    const clientInfo = clients.get(ws);
+    if (clientInfo) {
+      const { player, room } = clientInfo;
+      
+      try {
+        // Update player's online status in Firestore
+        const roomRef = db.collection('rooms').doc(room);
+        const roomDoc = await roomRef.get();
+        
+        if (roomDoc.exists) {
+          const players = roomDoc.data().players;
+          const updatedPlayers = players.map(p => {
+            if (p.name === player) {
+              return { ...p, isOnline: false };
+            }
+            return p;
+          });
+
+          await roomRef.update({ players: updatedPlayers });
+          console.log(`Updated ${player}'s online status to false in room ${room}`);
+        }
+
+        // Remove client from our map
+        clients.delete(ws);
+        
+        // Notify other clients about player disconnection
         wss.clients.forEach(function each(client) {
           if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({
@@ -93,24 +135,26 @@ wss.on('connection', function connection(ws) {
             }));
           }
         });
-      });
-    });
+      } catch (error) {
+        console.error('Error updating player online status:', error);
+      }
+    }
+
+    // Clear interval
+    if (ws.intervalId) {
+      clearInterval(ws.intervalId);
+    }
   });
 
-  // Send periodic updates about connected clients
-  const intervalId = setInterval(() => {
+  // Store interval ID with the WebSocket connection
+  ws.intervalId = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type: 'status_update',
         connectedClients: wss.clients.size
       }));
     }
-  }, 30000); // Every 30 seconds
-
-  // Clear interval when connection closes
-  ws.on('close', () => {
-    clearInterval(intervalId);
-  });
+  }, 30000);
 });
 
 // Error handling
