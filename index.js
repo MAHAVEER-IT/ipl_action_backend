@@ -12,6 +12,9 @@ const rooms = new Map();
 wss.on('connection', function connection(ws) {
   console.log('New client connected! Total clients:', wss.clients.size);
 
+  let playerInfo = null;
+  let roomInfo = null;
+
   ws.send(JSON.stringify({
     type: 'connection_established',
     message: 'Connected to IPL Action Game Server'
@@ -23,10 +26,26 @@ wss.on('connection', function connection(ws) {
       console.log('Received message:', data);
 
       if (data.type === 'join_room') {
+        // Store player and room info for this connection
+        playerInfo = data.player;
+        roomInfo = data.room;
+        
         // Store client connection with player and room info
         clients.set(ws, {
           player: data.player,
           room: data.room
+        });
+
+        // Broadcast player online status
+        wss.clients.forEach(function each(client) {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+              type: 'player_status',
+              room: data.room,
+              player: data.player,
+              isOnline: true
+            }));
+          }
         });
       }
 
@@ -94,10 +113,7 @@ wss.on('connection', function connection(ws) {
     if (clientInfo) {
       const { player, room } = clientInfo;
       
-      // Remove client from our map
-      clients.delete(ws);
-      
-      // Notify other clients about player disconnection
+      // Broadcast player offline status
       wss.clients.forEach(function each(client) {
         if (client.readyState === WebSocket.OPEN) {
           client.send(JSON.stringify({
@@ -108,6 +124,9 @@ wss.on('connection', function connection(ws) {
           }));
         }
       });
+
+      // Remove client from our map
+      clients.delete(ws);
     }
 
     // Clear interval
