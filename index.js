@@ -97,6 +97,38 @@ wss.on('connection', function connection(ws) {
           });
           break;
 
+        case 'new_bid':
+          // Broadcast bid to all clients in the room with team info
+          wss.clients.forEach(function each(client) {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({
+                type: 'new_bid',
+                room: data.room,
+                bidder: data.bidder,
+                bidderTeam: data.bidderTeam, // Add team info
+                amount: data.amount,
+                player: data.player,
+                timestamp: Date.now()
+              }));
+            }
+          });
+          break;
+
+        case 'bid_status':
+          // Broadcast bid status (going once/twice/sold)
+          wss.clients.forEach(function each(client) {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({
+                type: 'bid_status',
+                room: data.room,
+                status: data.status,
+                currentBidder: data.currentBidder,
+                bidderTeam: data.bidderTeam
+              }));
+            }
+          });
+          break;
+
         default:
           console.log('Unknown message type:', data.type);
       }
