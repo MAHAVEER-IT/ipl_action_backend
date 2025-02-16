@@ -129,6 +129,31 @@ wss.on('connection', function connection(ws) {
           });
           break;
 
+        case 'game_countdown_start':
+          // Broadcast countdown start to all clients in the room
+          wss.clients.forEach(function each(client) {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({
+                type: 'game_countdown_start',
+                room: data.room
+              }));
+            }
+          });
+          break;
+
+        case 'game_countdown':
+          // Broadcast current countdown number to all clients in the room
+          wss.clients.forEach(function each(client) {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({
+                type: 'game_countdown',
+                room: data.room,
+                count: data.count
+              }));
+            }
+          });
+          break;
+
         default:
           console.log('Unknown message type:', data.type);
       }
