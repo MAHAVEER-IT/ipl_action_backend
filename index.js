@@ -132,7 +132,8 @@ wss.on('connection', function connection(ws) {
         case 'game_countdown_start':
           // Broadcast countdown start to all clients in the room
           wss.clients.forEach(function each(client) {
-            if (client.readyState === WebSocket.OPEN) {
+            const clientInfo = clients.get(client);
+            if (client.readyState === WebSocket.OPEN && clientInfo && clientInfo.room === data.room) {
               client.send(JSON.stringify({
                 type: 'game_countdown_start',
                 room: data.room
@@ -144,7 +145,8 @@ wss.on('connection', function connection(ws) {
         case 'game_countdown':
           // Broadcast current countdown number to all clients in the room
           wss.clients.forEach(function each(client) {
-            if (client.readyState === WebSocket.OPEN) {
+            const clientInfo = clients.get(client);
+            if (client.readyState === WebSocket.OPEN && clientInfo && clientInfo.room === data.room) {
               client.send(JSON.stringify({
                 type: 'game_countdown',
                 room: data.room,
